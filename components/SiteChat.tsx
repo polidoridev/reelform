@@ -16,6 +16,8 @@ export function SiteChat({
   onDraftChange,
   onSend,
   busy,
+  sendDisabled = false,
+  maxLength,
   transcript,
   hint,
   placeholder = "Tell Claude what to change…",
@@ -27,6 +29,8 @@ export function SiteChat({
   onDraftChange: (value: string) => void;
   onSend: () => void;
   busy: boolean;
+  sendDisabled?: boolean;
+  maxLength?: number;
   transcript: string;
   hint: string;
   placeholder?: string;
@@ -95,19 +99,20 @@ export function SiteChat({
               className="field flex-1 min-h-[46px] max-h-40 resize-y"
               placeholder={placeholder}
               value={draft}
+              maxLength={maxLength}
               onChange={(e) => onDraftChange(e.target.value)}
               disabled={busy}
               onKeyDown={(e) => {
                 // Enter sends and Shift+Enter starts a new line, per chat conventions.
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (draft.trim() && !busy) onSend();
+                  if (draft.trim() && !busy && !sendDisabled) onSend();
                 }
               }}
             />
             <button
               onClick={onSend}
-              disabled={busy || !draft.trim()}
+              disabled={busy || sendDisabled || !draft.trim()}
               className="btn-primary !py-3 !px-5 shrink-0"
             >
               {busy ? "Working…" : "Send"}

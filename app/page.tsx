@@ -19,6 +19,10 @@ const FAQS = [
     a: "Yes. Upload MP4, MOV or WebM clips up to 50 MB and 60 seconds when creating a website or adding videos in the studio. Use them as ambient loops or scroll-controlled videos. Uploads cost no video credits; website builds and edits follow your usual plan and credit limits.",
   },
   {
+    q: "How is the AI video model chosen?",
+    a: "Reelform recommends an available model from your prompt and preferred shot settings, with a reason and credit cost before you generate. The recommendation updates as you edit. Your free hero uses an included 5-second, 720p preset; a plan unlocks prompt-based model matching.",
+  },
+  {
     q: "What if I don't like the video?",
     a: "You see the footage before building. Replace it with another clip of your own, or generate a new take with AI, then build once you're happy. Failed AI generations are automatically refunded.",
   },
@@ -37,7 +41,7 @@ const FEATURES = [
   {
     badge: "STEP 01",
     title: "Start with your footage",
-    body: "Upload your own MP4, MOV or WebM clips, or describe a shot and generate it with AI. Preview your footage in the studio, then choose how it plays.",
+    body: "Upload your own MP4, MOV or WebM clips, or describe an AI shot. Reelform recommends a video model and shows its price before you generate. Preview the footage, then choose how it plays.",
     video: "/ReferenceVids/hf_20260616_211244_e8668434-14ae-41be-8a46-92a921c7736c.mp4",
     tag: "VIDEO",
   },
@@ -58,7 +62,7 @@ const FEATURES = [
 ];
 
 const CAPABILITIES = [
-  { title: "Frontier video models", body: "Kling, Hailuo, Sora, Seedance and more.", badge: "Video" },
+  { title: "A model for your prompt", body: "A recommended video model, with a reason and price.", badge: "Video" },
   { title: "Opus · Sonnet · Haiku", body: "Three Claude models, your call.", badge: "Build" },
   { title: "Loop & scroll-scrub", body: "Two premium playback modes.", badge: "Motion" },
   { title: "Zip export", body: "HTML + your video, host anywhere.", badge: "Own it" },

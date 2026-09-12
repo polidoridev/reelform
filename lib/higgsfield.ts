@@ -119,7 +119,7 @@ const MODELS = {
   "kling-2.5-turbo-pro": {
     id: "kling-2.5-turbo-pro",
     label: "Kling 2.5 Turbo Pro",
-    blurb: "Fastest turnaround",
+    blurb: "Dynamic motion and camera movement",
     path: "/kling-video/v2.5-turbo/pro/text-to-video",
     durations: [5, 10],
     ratios: null,
@@ -288,9 +288,9 @@ export async function createVideoTask(params: CreateVideoParams): Promise<{ task
   });
   if (!res.ok) {
     const detail = (await res.text()).slice(0, 300);
-    // A gated model is a choice the user can fix, not an outage.
+    // Access can change after a recommendation was shown.
     if (res.status === 404 && detail.includes("model_not_found")) {
-      throw new Error(`${m.label} isn't enabled on this Higgsfield account. Pick another model.`);
+      throw new Error(`${m.label} is currently unavailable. Please try again shortly.`);
     }
     throw new Error(`Higgsfield task creation failed (${res.status}): ${detail}`);
   }
@@ -427,12 +427,12 @@ export async function checkModelAccess(): Promise<Record<string, boolean>> {
           cache: "no-store",
           signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        // Anything other than "no such model" means the endpoint is ours to
-        // call; an unreachable API is reported by checkHealth, not here, so
-        // assume available rather than hiding the whole catalog on a blip.
-        return [m.id, res.status !== 404] as const;
+        // Only validation errors confirm that this endpoint exists and our
+        // account reached input validation. Auth failures, throttling, and
+        // outages must never turn into permission to start a paid render.
+        return [m.id, res.status === 400 || res.status === 422] as const;
       } catch {
-        return [m.id, true] as const;
+        return [m.id, false] as const;
       }
     })
   );

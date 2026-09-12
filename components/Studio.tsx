@@ -9,12 +9,12 @@ import {
   FREE_TIER,
   estimateBuildCredits,
   resolveModel,
-  videoCost,
   type ModelId,
   DEPLOY_ENABLED,
 } from "@/lib/pricing";
 import {
   DEFAULT_VIDEO_MODEL,
+  VIDEO_MODELS,
   isVideoModel,
   type Resolution,
   type VideoModelId,
@@ -29,6 +29,8 @@ import { SiteChat, type ChatMessage } from "@/components/SiteChat";
 import { trackEvent } from "@/lib/analytics";
 import { BrandMark } from "@/components/BrandMark";
 import { uploadFootage } from "@/lib/upload-footage";
+import { useVideoRecommendation } from "@/lib/use-video-recommendation";
+import type { VideoRecommendation } from "@/lib/video-recommendation";
 
 const ERROR_SENTINEL = "\n<<<REELFORM_ERROR>>>";
 
@@ -96,6 +98,7 @@ export function Studio({
   /** The one free site build runs on a fixed model and is not charged for. */
   freeBuild?: boolean;
 }) {
+  const [freeShotAvailable, setFreeShotAvailable] = useState(pinnedShot);
   // Brief
   const [name, setName] = useState(project.name);
   const [industry, setIndustry] = useState(project.industry ?? "");
@@ -228,6 +231,7 @@ export function Studio({
           } else if (data.status === "failed") {
             patchClip(id, { status: "failed" });
             trackEvent("video_failed");
+            if (pinnedShot) setFreeShotAvailable(true);
             setError(data.error ?? "Video generation failed; credits refunded.");
             refreshCredits();
           } else if (data.status) {
@@ -239,7 +243,7 @@ export function Studio({
       }
     }, 10000); // Higgsfield asks for <=1 status poll per request per 10s
     return () => clearInterval(timer);
-  }, [pendingIds, patchClip, refreshCredits]);
+  }, [pendingIds, patchClip, refreshCredits, pinnedShot]);
 
   // ── Clip actions ───────────────────────────────────────────────────
   function setDraftFor(id: string, patch: Partial<ClipDraft>) {
@@ -249,28 +253,30 @@ export function Studio({
   // Ask for the next video in words; Claude works out the shot and rolls it.
   async function requestClip() {
     const ask = shotDraft.trim();
-    if (!ask || requestingClip || uploadInFlight.current || building || editing) return;
+    if (!ask || !extraVideo.recommendation || requestingClip || uploadInFlight.current || building || editing) return;
     setError(null);
     setRequestingClip(true);
     setShotChat((c) => [...c, { role: "user", content: ask }]);
-    setShotDraft("");
     try {
       const res = await fetch("/api/video/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: project.id, request: ask }),
+        body: JSON.stringify({ projectId: project.id, request: ask, ...extraVideo.recommendation, recommendationSettings: extraSettings }),
       });
       const data = await res.json();
       if (!res.ok || !data.video) {
-        const message =
-          res.status === 402
+        if (res.status === 409 || res.status === 503) extraVideo.refresh();
+        const message = data.message ?? (
+          res.status === 402 && typeof data.cost === "number"
             ? `Not enough credits (${data.cost} needed). Top up on the pricing page.`
-            : data.message ?? data.error ?? "Could not start that video.";
+            : data.error ?? "Could not start that video.");
         setError(message);
         setShotChat((c) => [...c, { role: "assistant", content: message }]);
         return;
       }
       const video = data.video as VideoRow;
+      if (video.settings?.free) setFreeShotAvailable(false);
+      setShotDraft("");
       trackEvent("video_requested", { source: "chat" });
       setClips((cs) => [...cs, video]);
       setDrafts((d) => ({ ...d, [video.id]: draftFor(video) }));
@@ -339,7 +345,7 @@ export function Studio({
     }
   }
 
-  async function generateClip(id: string) {
+  async function generateClip(id: string, recommendation: VideoRecommendation, refreshRecommendation: () => void) {
     if (uploadInFlight.current || busyClip || building || editing) return;
     const d = drafts[id];
     if (!d?.prompt.trim()) {
@@ -355,37 +361,39 @@ export function Studio({
         body: JSON.stringify({
           videoId: id,
           prompt: d.prompt,
-          resolution: d.resolution,
-          duration: d.duration,
-          ratio: d.ratio,
-          model: d.model,
+          ...recommendation,
+          recommendationSettings: { resolution: d.resolution, duration: d.duration, ratio: d.ratio },
         }),
       });
       const data = await res.json();
-      if (res.status === 402) {
-        setError(`Not enough credits (${data.cost} needed). Top up on the pricing page.`);
-      } else if (!res.ok) {
-        setError(data.message ?? data.error ?? "Video generation failed.");
+      if (!res.ok) {
+        if (res.status === 409 || res.status === 503) refreshRecommendation();
+        setError(data.message ?? (res.status === 402 && typeof data.cost === "number"
+          ? `Not enough credits (${data.cost} needed). Top up on the pricing page.`
+          : data.error ?? "Video generation failed."));
       } else {
+        const selected = data.recommendation ?? recommendation;
+        if (data.settings?.free) setFreeShotAvailable(false);
         patchClip(id, {
           status: "queued",
           url: null,
           task_id: data.taskId,
           prompt: d.prompt,
           settings: {
-            model: d.model,
-            resolution: d.resolution,
-            duration: d.duration,
-            ratio: d.ratio,
+            model: selected.model,
+            resolution: selected.resolution,
+            duration: selected.duration,
+            ratio: selected.ratio,
             cost: data.cost,
+            free: data.settings?.free ?? false,
           },
         });
         trackEvent("video_requested", {
-          resolution: d.resolution,
-          duration: d.duration,
-          ratio: d.ratio,
-          model: d.model,
-          source: "manual",
+          resolution: selected.resolution,
+          duration: selected.duration,
+          ratio: selected.ratio,
+          model: selected.model,
+          source: "recommended",
         });
       }
     } catch {
@@ -693,13 +701,17 @@ export function Studio({
   // Builds are metered: this is the ceiling held up front, and anything the
   // build does not spend comes straight back (see /api/site/generate).
   const claudeCost = estimateBuildCredits(model).hold;
-  // Chat-requested clips are shot at the studio default (see /api/video/request).
-  const extraClipCost = videoCost(DEFAULT_VIDEO_MODEL, "720p", 5);
+  // Chat recommendations use the request text and the hero framing.
+  const extraSettings = { model: DEFAULT_VIDEO_MODEL, resolution: "720p" as const, duration: 5, ratio: (clips[0]?.settings?.ratio ?? "16:9") as Ratio };
+  const extraVideo = useVideoRecommendation(shotDraft.trim().slice(0, 2000), extraSettings, freeShotAvailable,
+    readyClips.length > 0 && clips.length < MAX_VIDEOS_PER_PROJECT);
+  const extraModel = VIDEO_MODELS.find((model) => model.id === extraVideo.recommendation?.model);
+  const extraModelName = extraModel?.label;
 
   // Admins never spend credits, and a free account's first shot and first
   // build are on us: show that rather than a price nobody is going to pay.
   const costLabel = (n: number) =>
-    isAdmin ? "Free" : pinnedShot ? `Free · normally ${n} credits` : `${n} credits`;
+    isAdmin || freeShotAvailable ? "Free" : `${n} credits`;
 
   const steps = [
     { n: 1 as const, label: "Brief", done: siteBrief.trim().length > 0 },
@@ -929,7 +941,7 @@ export function Studio({
                     onDraftChange={(patch) => setDraftFor(clip.id, patch)}
                     onRename={(label) => updateClip(clip.id, { label })}
                     onModeChange={(mode) => updateClip(clip.id, { mode })}
-                    onGenerate={() => generateClip(clip.id)}
+                    onGenerate={(recommendation, refresh) => generateClip(clip.id, recommendation, refresh)}
                     onUpload={(file) => uploadClip(clip.id, file)}
                     onSuggest={() => suggestShot(clip.id)}
                     onRemove={() => removeClip(clip.id)}
@@ -939,8 +951,7 @@ export function Studio({
                     uploadProgress={uploadingClip === clip.id ? uploadProgress : null}
                     removable={clips.length > 1}
                     costLabel={costLabel}
-                    isAdmin={isAdmin}
-                    pinnedShot={pinnedShot}
+                    pinnedShot={freeShotAvailable}
                   />
                 ))}
               </div>
@@ -969,12 +980,21 @@ export function Studio({
                     </p>
                   </div>
                   {clips.length < MAX_VIDEOS_PER_PROJECT && (
-                    <div className="h-[22rem]">
+                    <div className="h-[26rem] flex flex-col">
+                      <div className="border-b border-line px-5 py-3 text-sm" role="status" aria-live="polite">
+                        {extraVideo.recommendation ? <>
+                          <p className="font-medium">Recommended: {extraModelName} · {isAdmin || freeShotAvailable ? "Free" : `${extraVideo.recommendation.cost} credits`}</p>
+                          <p className="mt-1 text-xs text-muted">{extraVideo.recommendation.reason}</p>
+                        </> : <p className="text-muted">{extraVideo.loading ? "Checking available video models…" : extraVideo.error ?? "Describe your next shot to get a model recommendation."}</p>}
+                        {extraVideo.error && <button type="button" className="mt-2 text-primary underline" onClick={extraVideo.refresh}>Try again</button>}
+                      </div>
                       <SiteChat
                         messages={shotChat}
                         draft={shotDraft}
                         onDraftChange={setShotDraft}
                         onSend={requestClip}
+                        sendDisabled={!extraVideo.recommendation}
+                        maxLength={2000}
                         busy={requestingClip || uploadingClip !== null || building || editing}
                         transcript=""
                         placeholder="e.g. now a slow close-up of the beans being roasted"
@@ -983,7 +1003,9 @@ export function Studio({
                         hint={
                           isAdmin
                             ? "Extra videos are free for admins. Enter to send, Shift+Enter for a new line."
-                            : `Each extra video costs ${extraClipCost} credits (720p, 5 seconds). Enter to send.`
+                            : extraVideo.recommendation
+                              ? `${extraVideo.recommendation.cost} credits · ${extraModel?.resolutions ? extraVideo.recommendation.resolution : "native resolution"} · ${extraVideo.recommendation.duration}s. Enter to generate.`
+                              : "The recommended model and price will appear before you generate."
                         }
                       />
                     </div>

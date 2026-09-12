@@ -31,14 +31,25 @@ export default function FaqPage() {
         </p>
       </LegalSection>
 
+      <LegalSection heading="How is the video model chosen?">
+        <p>
+          Describe your shot and Reelform recommends an available model based on the prompt&apos;s
+          style and movement, plus your preferred quality, length and shape. The recommendation
+          updates as you edit, explains the match and shows the credit cost before you generate.
+          Your free hero uses an included 5-second, 720p preset. A plan unlocks prompt-based
+          model matching.
+        </p>
+      </LegalSection>
+
       <LegalSection heading="How do credits work?">
         <p>
           AI generation runs on credits. A video render costs a fixed amount shown before you
           confirm; a site build reserves a ceiling and charges only what it actually uses, so the
           number you see is the most it can cost. One credit is roughly $0.01 of value. Every new
           account starts with one complete website free: a hero video and a full site build. The
-          free pair runs on a fixed preset, a 5-second 720p shot and a fast build, choosing the
-          model, resolution and shot length is what a plan unlocks.
+          free pair runs on a fixed preset: a 5-second 720p shot and a fast build. A plan unlocks
+          prompt-based video model matching, adjustable quality and length, and your choice of
+          Claude model for site builds.
         </p>
         <p>
           Subscription credits refill monthly and roll over for up to {ROLLOVER_MONTHS} months, so

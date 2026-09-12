@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { VIDEO_TEMPLATES } from "@/lib/templates";
 import { ShotControls, type ShotSettings } from "@/components/ShotControls";
-import { VIDEO_MODELS, resolveShot } from "@/lib/higgsfield";
-import { videoCost } from "@/lib/pricing";
+import type { VideoRecommendation } from "@/lib/video-recommendation";
+import { useVideoRecommendation } from "@/lib/use-video-recommendation";
 import type { VideoRow } from "@/lib/videos";
 import FootageUpload from "@/components/FootageUpload";
 
@@ -36,7 +36,6 @@ export function ClipCard({
   uploadProgress,
   removable,
   costLabel,
-  isAdmin = false,
   pinnedShot = false,
 }: {
   clip: VideoRow;
@@ -45,7 +44,7 @@ export function ClipCard({
   onDraftChange: (patch: Partial<ClipDraft>) => void;
   onRename: (label: string) => void;
   onModeChange: (mode: "loop" | "scrub") => void;
-  onGenerate: () => void;
+  onGenerate: (recommendation: VideoRecommendation, refresh: () => void) => void;
   onUpload: (file: File) => Promise<boolean>;
   onSuggest: () => void;
   onRemove: () => void;
@@ -55,11 +54,9 @@ export function ClipCard({
   uploadProgress: number | null;
   removable: boolean;
   costLabel: (n: number) => string;
-  isAdmin?: boolean;
   /** The free hero shot runs on a fixed preset; see ShotControls. */
   pinnedShot?: boolean;
 }) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [reshooting, setReshooting] = useState(false);
   const [labelDraft, setLabelDraft] = useState(clip.label);
   const [source, setSource] = useState<"upload" | "ai">("upload");
@@ -69,9 +66,12 @@ export function ClipCard({
   const ready = clip.status === "succeeded" && Boolean(clip.url);
   const uploaded = clip.settings?.source === "upload";
   const showControls = !ready || reshooting;
-  const model = VIDEO_MODELS.find((m) => m.id === draft.model);
-  const shot = resolveShot(draft.model, draft);
-  const cost = videoCost(draft.model, shot.resolution ?? "720p", shot.duration);
+  const { recommendation, loading, error, refresh } = useVideoRecommendation(
+    draft.prompt,
+    draft,
+    pinnedShot,
+    source === "ai" && showControls && !rendering
+  );
 
   async function useFootage() {
     if (!file || busy) return;
@@ -258,38 +258,26 @@ export function ClipCard({
                 {suggesting ? "Thinking up a shot…" : "✨ Suggest a shot from my brief · free"}
               </button>
 
-              <div className="rounded-lg border border-line">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced((v) => !v)}
-                  disabled={busy}
-                  className="w-full flex items-center justify-between px-3 py-2 text-left"
-                >
-                  <span className="mono-label">
-                    {model?.label ?? draft.model} · {shot.resolution ?? "native"} · {shot.duration}s ·{" "}
-                    {shot.ratio ?? "native"}
-                  </span>
-                  <span className="text-faint text-xs">{showAdvanced ? "▲" : "▾"}</span>
-                </button>
-                {showAdvanced && (
-                  <ShotControls
-                    className="px-3 pb-3"
-                    value={draft}
-                    onChange={onDraftChange}
-                    showRatio
-                    costLabel={costLabel}
-                    isAdmin={isAdmin}
-                    pinned={pinnedShot}
-                  />
-                )}
-              </div>
+              <ShotControls
+                value={draft}
+                onChange={onDraftChange}
+                recommendation={recommendation}
+                recommendationLoading={loading}
+                recommendationError={error}
+                onRetry={refresh}
+                showRatio
+                costLabel={costLabel}
+                pinned={pinnedShot}
+              />
 
               <button
-                onClick={onGenerate}
-                disabled={busy || !draft.prompt.trim()}
+                onClick={() => recommendation && onGenerate(recommendation, refresh)}
+                disabled={busy || !draft.prompt.trim() || !recommendation}
                 className="btn-primary w-full !py-3"
               >
-                {ready ? `Reshoot · ${costLabel(cost)}` : `Generate video · ${costLabel(cost)}`}
+                {recommendation
+                  ? `${ready ? "Reshoot" : "Generate video"} · ${costLabel(recommendation.cost)}`
+                  : loading ? "Checking video models…" : "Generate video"}
               </button>
             </>
           )}

@@ -10,6 +10,7 @@ import { trackEvent } from "@/lib/analytics";
 import ProviderStatus from "@/components/ProviderStatus";
 import FootageUpload from "@/components/FootageUpload";
 import { uploadFootage } from "@/lib/upload-footage";
+import { useVideoRecommendation } from "@/lib/use-video-recommendation";
 
 type Mode = "scrub" | "loop";
 type Stage = "format" | "brief" | "building";
@@ -51,6 +52,7 @@ export function CreateFlow({
   pinnedShot?: boolean;
 }) {
   const router = useRouter();
+  const [freeShotAvailable, setFreeShotAvailable] = useState(pinnedShot);
   const [stage, setStage] = useState<Stage>("format");
   const [mode, setMode] = useState<Mode>("scrub");
   const [brief, setBrief] = useState("");
@@ -61,10 +63,12 @@ export function CreateFlow({
   const pendingAI = useRef<string | null>(null);
   const [shot, setShot] = useState<ShotSettings>({
     model: DEFAULT_VIDEO_MODEL,
-    resolution: "1080p",
+    resolution: "720p",
     duration: 5,
     ratio: "16:9",
   });
+
+  const videoRecommendation = useVideoRecommendation(brief, shot, freeShotAvailable, source === "ai");
 
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +82,7 @@ export function CreateFlow({
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
-    if (!brief.trim() || (source === "upload" && !footage)) return;
+    if (!brief.trim() || (source === "upload" && !footage) || (source === "ai" && !videoRecommendation.recommendation)) return;
     setError(null);
     setUpgrade(false);
     setStage("building");
@@ -110,6 +114,7 @@ export function CreateFlow({
         if (!modeRes.ok) return fail("Could not update the playback mode. Please try again.");
       }
 
+      const recommended = videoRecommendation.recommendation;
       const sourceKey = source === "upload" ? footage : JSON.stringify({ brief, shot });
       if (source === "upload" && footage) {
         if (readySource.current !== footage) {
@@ -135,12 +140,19 @@ export function CreateFlow({
           const videoRes = await fetch("/api/video/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoId: currentProject.heroVideoId, prompt, ...shot }),
+            body: JSON.stringify({
+              videoId: currentProject.heroVideoId, prompt,
+              ...recommended,
+              recommendationPrompt: brief,
+              recommendationSettings: { resolution: shot.resolution, duration: shot.duration, ratio: shot.ratio },
+            }),
           });
           const video = await videoRes.json();
           if (!videoRes.ok) {
+            if (videoRes.status === 409 || videoRes.status === 503) videoRecommendation.refresh();
             return fail(video.message ?? video.error ?? "Could not start the video.", videoRes.status === 402);
           }
+          if (video.settings?.free) setFreeShotAvailable(false);
           readySource.current = null;
           pendingAI.current = sourceKey as string;
         }
@@ -159,6 +171,7 @@ export function CreateFlow({
           status = data.status;
           if (status === "failed") {
             pendingAI.current = null;
+            if (pinnedShot) setFreeShotAvailable(true);
             return fail(data.error ?? "The video failed to render. Nothing was charged, so try again.");
           }
         }
@@ -331,7 +344,7 @@ export function CreateFlow({
               ? "Your first website is free, no card needed."
               : "Building another site uses your plan's credits."}
           </p>
-          <button type="submit" disabled={!brief.trim() || (source === "upload" && !footage)} className="btn-primary shrink-0">
+          <button type="submit" disabled={!brief.trim() || (source === "upload" && !footage) || (source === "ai" && !videoRecommendation.recommendation)} className="btn-primary shrink-0">
             Build my website
           </button>
         </div>
@@ -354,18 +367,19 @@ export function CreateFlow({
           most people never touch them. The price of the shot they describe is
           right here, so nobody has to guess before pressing generate. */}
       <div className="mt-8 flex items-center justify-between gap-4">
-        <p className="mono-label">SHOT CONTROLS</p>
+        <p className="mono-label">RECOMMENDED FOR YOUR PROMPT</p>
         <ProviderStatus />
       </div>
       <ShotControls
         className="mt-3"
         value={shot}
         onChange={(patch) => setShot((s) => ({ ...s, ...patch }))}
-        isAdmin={isAdmin}
-        pinned={pinnedShot}
-        costLabel={(credits) =>
-          pinnedShot ? `Free · normally ${credits} credits` : `${credits} credits`
-        }
+        recommendation={videoRecommendation.recommendation}
+        recommendationLoading={videoRecommendation.loading}
+        recommendationError={videoRecommendation.error}
+        onRetry={videoRecommendation.refresh}
+        pinned={freeShotAvailable}
+        costLabel={(credits) => isAdmin || freeShotAvailable ? "Free" : `${credits} credits`}
       />
       </>}
     </form>

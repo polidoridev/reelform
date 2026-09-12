@@ -4,21 +4,18 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { spendCredits, grantCredits } from "@/lib/credits";
 import { isAdminUser } from "@/lib/admin";
-import { authorizeVideo, releaseFree } from "@/lib/entitlements";
+import { authorizeVideo, isSubscribed, releaseFree } from "@/lib/entitlements";
 import { planClip } from "@/lib/claude";
-import { createVideoTask, DEFAULT_VIDEO_MODEL, type Resolution } from "@/lib/higgsfield";
-import { videoCost } from "@/lib/pricing";
+import { createVideoTask } from "@/lib/higgsfield";
+import { getVideoModelAccess } from "@/lib/video-model-access";
+import { matchesVideoRecommendation, normalizeRecommendationSettings, recommendVideoModel } from "@/lib/video-recommendation";
 import { listVideos, VIDEO_COLUMNS, MAX_VIDEOS_PER_PROJECT } from "@/lib/videos";
 
 // Asking for another video in plain language: Claude turns the request into a
 // named slot with a real shot prompt, then it goes straight to render. The
 // clips a production already has are the context, so shots don't repeat.
 export const maxDuration = 120;
-
-// Extra clips are shot at the same default as the studio's own controls; the
-// composer states the cost before the user sends anything.
-const RESOLUTION: Resolution = "720p";
-const DURATION = 5;
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   const supabase = await createSupabaseServer();
@@ -31,7 +28,7 @@ export async function POST(request: NextRequest) {
   const limited = await enforceRateLimit(user.id, "video_request");
   if (limited) return limited;
 
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => ({}))) ?? {};
   if (typeof body.projectId !== "string" || typeof body.request !== "string" || !body.request.trim()) {
     return NextResponse.json({ error: "Describe the video you want" }, { status: 400 });
   }
@@ -58,10 +55,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const isAdmin = isAdminUser(user.id);
+  const { data: profile } = await supabase.from("profiles")
+    .select("plan, plan_status, free_video_used").eq("id", user.id).single();
+  const pinned = !isAdmin && !isSubscribed(profile) && !profile?.free_video_used;
+  const available = await getVideoModelAccess();
+  const settings = normalizeRecommendationSettings(body.recommendationSettings ?? body);
+  const recommendation = recommendVideoModel({ prompt: ask, settings, available, pinned });
+  if (!recommendation) {
+    return NextResponse.json({ error: "video_model_unavailable", message: "No supported video model is available right now. Please try again shortly.", available }, { status: 503 });
+  }
+  if (!matchesVideoRecommendation(body, recommendation)) {
+    return NextResponse.json({ error: "recommendation_changed", message: "Your video recommendation or price changed. Review the updated shot before generating.", recommendation, available }, { status: 409 });
+  }
+
   // Authorize before planning. `planClip` is a real Anthropic call, so running
   // it ahead of the entitlement check meant every denied request still cost us
   // a generation, and the rate limiter allows 40 an hour per account.
-  const isAdmin = isAdminUser(user.id);
   let freeShot = false;
   let cost = 0;
   if (!isAdmin) {
@@ -70,8 +80,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: grant.reason, message: grant.message }, { status: 402 });
     }
     freeShot = grant.billing === "free";
+    if (freeShot !== pinned) {
+      if (freeShot) await releaseFree(user.id, "video");
+      return NextResponse.json({ error: "recommendation_changed", message: "Your plan changed. Refresh your recommendation before generating.", recommendation: recommendVideoModel({ prompt: ask, settings, available, pinned: freeShot }), available }, { status: 409 });
+    }
     if (!freeShot) {
-      cost = videoCost(DEFAULT_VIDEO_MODEL, RESOLUTION, DURATION);
+      cost = recommendation.cost;
       const ok = await spendCredits(user.id, cost, "video_generation", project.id);
       if (!ok) return NextResponse.json({ error: "insufficient_credits", cost }, { status: 402 });
     }
@@ -108,15 +122,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Match the hero's framing so the clips cut together.
-  const ratio = (clips[0]?.settings?.ratio as string) ?? "16:9";
+  const { model, resolution, duration, ratio } = recommendation;
 
   try {
     const { taskId } = await createVideoTask({
       prompt: plan.prompt,
-      resolution: RESOLUTION,
-      duration: DURATION,
-      ratio: ratio as "16:9" | "9:16" | "1:1" | "21:9",
+      resolution,
+      duration,
+      ratio,
+      model,
     });
 
     const admin = createSupabaseAdmin();
@@ -132,12 +146,12 @@ export async function POST(request: NextRequest) {
         status: "queued",
         task_id: taskId,
         settings: {
-          resolution: RESOLUTION,
-          duration: DURATION,
+          resolution,
+          duration,
           ratio,
           cost,
           free: freeShot,
-          model: DEFAULT_VIDEO_MODEL,
+          model,
         },
       })
       .select(VIDEO_COLUMNS)
@@ -156,7 +170,7 @@ export async function POST(request: NextRequest) {
       },
     ]);
 
-    return NextResponse.json({ video, reply: plan.reply, cost });
+    return NextResponse.json({ video, reply: plan.reply, cost, recommendation });
   } catch (err) {
     // Nothing was queued, give the credits back.
     await undoCharge();

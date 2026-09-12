@@ -62,6 +62,13 @@ export default function GuidePage() {
           unhurried.&rdquo;
         </p>
         <p>
+          Reelform recommends an available video model from your prompt and preferred quality,
+          length and shape. As you edit the prompt, the recommendation updates with a reason,
+          the supported output settings and the credit price. Review these before generating.
+          Your free hero uses its included 5-second, 720p preset; a plan unlocks prompt-based
+          model matching.
+        </p>
+        <p>
           Not sure where to start? The studio&apos;s <strong className="text-ink">Suggest a shot</strong>{" "}
           button writes one from your brief at no cost, and the shot-style chips give you a
           tested starting point to edit.
@@ -113,16 +120,18 @@ export default function GuidePage() {
           Every action shows its price before you confirm it. New accounts start with{" "}
           one free website: a hero video and a full site build, no card needed.
           {" "}Uploading your own footage is free; building and editing the website follow the usual plan and credit rules.
+          Video prices vary with the recommended model and its output settings; the examples below
+          show two WAN 2.5 shots.
         </p>
         <ul className="mt-4 space-y-2">
           <li className="flex justify-between border-b border-line pb-2">
-            <span>Video · WAN 2.5 · 720p · 5s</span>
+            <span>Video example · WAN 2.5 · 720p · 5s</span>
             <span className="font-mono text-primary">
               {videoCost(DEFAULT_VIDEO_MODEL, "720p", 5)} cr
             </span>
           </li>
           <li className="flex justify-between border-b border-line pb-2">
-            <span>Video · WAN 2.5 · 1080p · 5s</span>
+            <span>Video example · WAN 2.5 · 1080p · 5s</span>
             <span className="font-mono text-primary">
               {videoCost(DEFAULT_VIDEO_MODEL, "1080p", 5)} cr
             </span>
