@@ -7,6 +7,15 @@ import type { SiteVideo } from "./claude";
 
 export type VideoStatus = "none" | "queued" | "running" | "succeeded" | "failed";
 
+export interface PendingVideoUpload {
+  path: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  expiresAt: string;
+  processing?: boolean;
+}
+
 export interface VideoRow {
   id: string;
   project_id: string;
@@ -24,6 +33,11 @@ export interface VideoRow {
     ratio?: string;
     cost?: number;
     free?: boolean;
+    source?: "upload";
+    originalName?: string;
+    originalSize?: number;
+    uploadedAt?: string;
+    uploadPending?: PendingVideoUpload;
   } | null;
 }
 

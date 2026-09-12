@@ -17,6 +17,9 @@ import { videoCost, FREE_TIER } from "@/lib/pricing";
 import { syncPrimaryVideo } from "@/lib/videos";
 import { authorizeVideo, releaseFree } from "@/lib/entitlements";
 
+export const runtime = "nodejs";
+export const maxDuration = 90;
+
 interface Body {
   videoId: string; // the clip slot being shot
   prompt: string;
@@ -59,10 +62,15 @@ export async function POST(request: NextRequest) {
   // Ownership check (RLS also enforces this).
   const { data: video } = await supabase
     .from("project_videos")
-    .select("id, project_id, position")
+    .select("id, project_id, position, status, task_id, url, prompt, settings, updated_at")
     .eq("id", body.videoId)
+    .eq("user_id", user.id)
     .single();
   if (!video) return NextResponse.json({ error: "Video not found" }, { status: 404 });
+  if (video.status === "queued" || video.status === "running" ||
+      (video.settings?.uploadPending && Date.parse(video.settings.uploadPending.expiresAt) > Date.now())) {
+    return NextResponse.json({ error: "This video is already rendering or uploading. Wait for it to finish first." }, { status: 409 });
+  }
 
   // Free accounts get one hero video; after that it's credits on a plan.
   const isAdmin = isAdminUser(user.id);
@@ -104,6 +112,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const undoCharge = async () => {
+    if (freeShot) await releaseFree(user.id, "video");
+    else if (!isAdmin && cost > 0) await grantCredits(user.id, cost, "refund", video.project_id);
+  };
+  const admin = createSupabaseAdmin();
+  let conflicted = false;
+  let submitted = false;
+
   try {
     const { taskId } = await createVideoTask({
       prompt: body.prompt.trim(),
@@ -113,8 +129,7 @@ export async function POST(request: NextRequest) {
       model: videoModel,
     });
 
-    const admin = createSupabaseAdmin();
-    await admin
+    const { data: saved, error: saveError } = await admin
       .from("project_videos")
       .update({
         prompt: body.prompt.trim(),
@@ -124,7 +139,16 @@ export async function POST(request: NextRequest) {
         settings: { resolution, duration, ratio, cost, free: freeShot, model: videoModel },
         updated_at: new Date().toISOString(),
       })
-      .eq("id", video.id);
+      // Keep the current clip intact while the provider accepts the task. A
+      // newer upload or render wins; this request refunds its charge below.
+      .eq("id", video.id).eq("user_id", user.id).eq("updated_at", video.updated_at).eq("status", video.status)
+      .select("id").maybeSingle();
+    if (saveError) throw new Error("Could not save the video request. Please try again.");
+    if (!saved) {
+      conflicted = true;
+      throw new Error("This video changed. Refresh it and try again.");
+    }
+    submitted = true;
 
     if (video.position === 0) await syncPrimaryVideo(admin, video.project_id);
 
@@ -138,10 +162,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ taskId, cost });
   } catch (err) {
-    // Task never started, undo the charge, whichever form it took.
-    if (freeShot) await releaseFree(user.id, "video");
-    else if (!isAdmin) await grantCredits(user.id, cost, "refund", video.project_id);
+    // A provider timeout or a superseded request must not cost the member.
+    if (!submitted) await undoCharge();
     const message = err instanceof Error ? err.message : "Video generation failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    return NextResponse.json({ error: message }, { status: conflicted ? 409 : 502 });
   }
 }

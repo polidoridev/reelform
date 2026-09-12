@@ -49,8 +49,8 @@ export function SiteFooter() {
               </span>
             </Link>
             <p className="mt-3 text-sm text-white/60 max-w-xs leading-relaxed">
-              AI video-first websites. Direct the shot with any frontier video model, let Claude build the site
-              around it.
+              AI video-first websites. Upload your footage or generate a video, then let Claude
+              build the site around it.
             </p>
           </div>
           {COLUMNS.map((col) => (

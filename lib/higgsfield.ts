@@ -282,6 +282,9 @@ export async function createVideoTask(params: CreateVideoParams): Promise<{ task
     method: "POST",
     headers: headers(),
     body: JSON.stringify(m.body(params, resolved)),
+    // Leave room in the route's function budget to restore the user's charge
+    // when the provider does not acknowledge a submission.
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const detail = (await res.text()).slice(0, 300);

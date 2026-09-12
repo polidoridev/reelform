@@ -59,12 +59,15 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Keep the binary's real package directory when resolving ffmpeg at runtime.
+  serverExternalPackages: ["ffmpeg-static"],
   // The video status route spawns the ffmpeg-static binary (all-intra re-encode
   // for smooth scrubbing). Next's file tracing only sees the require() string,
   // not the platform binary it points to, so include it explicitly or it won't
   // be bundled into the serverless function on Vercel.
   outputFileTracingIncludes: {
     "/api/video/status": ["./node_modules/ffmpeg-static/ffmpeg*"],
+    "/api/video/upload": ["./node_modules/ffmpeg-static/ffmpeg*"],
   },
 
   // Don't advertise the framework version.

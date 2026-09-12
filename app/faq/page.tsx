@@ -15,15 +15,25 @@ export default function FaqPage() {
     <LegalShell label="HELP DESK" title="Frequently asked questions">
       <LegalSection heading="What is Reelform?">
         <p>
-          Reelform builds video-first websites. You describe your business, direct a cinematic hero
-          video with Seedance, and Claude builds a complete single-page site around the footage.
+          Reelform builds video-first websites. You describe your business, upload your own footage
+          or generate a video with AI, and Claude builds a complete single-page site around the footage.
           It all takes a few minutes, and you iterate through chat.
+        </p>
+      </LegalSection>
+
+      <LegalSection heading="Can I use my own footage?">
+        <p>
+          Yes. Choose Use my footage when starting a production or adding a clip in the studio.
+          Upload an MP4, MOV or WebM file up to 50 MB and 60 seconds. You can use it as an ambient
+          loop or a scroll-controlled video, add more clips, and replace footage later.
+          Uploads use no video credits and do not consume your free AI video allowance.
+          Website builds and edits still follow your plan and credit limits.
         </p>
       </LegalSection>
 
       <LegalSection heading="How do credits work?">
         <p>
-          Everything runs on credits. A video render costs a fixed amount shown before you
+          AI generation runs on credits. A video render costs a fixed amount shown before you
           confirm; a site build reserves a ceiling and charges only what it actually uses, so the
           number you see is the most it can cost. One credit is roughly $0.01 of value. Every new
           account starts with one complete website free: a hero video and a full site build. The

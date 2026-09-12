@@ -17,6 +17,8 @@ export type LimitBucket =
   | "site_deploy"
   | "video_request"
   | "video_generate"
+  | "video_upload"
+  | "video_upload_finalize"
   | "suggest_shot"
   | "project_create"
   | "avatar_upload";
@@ -41,6 +43,8 @@ const LIMITS: Record<LimitBucket, Limit> = {
   site_deploy: { max: 30, windowSeconds: 3600, label: "deploys" },
   video_request: { max: 40, windowSeconds: 3600, label: "video requests" },
   video_generate: { max: 40, windowSeconds: 3600, label: "video renders" },
+  video_upload: { max: 20, windowSeconds: 3600, label: "footage uploads" },
+  video_upload_finalize: { max: 20, windowSeconds: 3600, label: "footage imports" },
   suggest_shot: { max: 60, windowSeconds: 3600, label: "shot suggestions" },
   project_create: { max: 30, windowSeconds: 3600, label: "new productions" },
   // Costs nothing at a provider, but it does write to our storage bucket.

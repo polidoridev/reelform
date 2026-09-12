@@ -1,6 +1,6 @@
 # Reelform
 
-AI video-first website builder. Users describe their business, direct a cinematic hero video with **Seedance** (hosted on the **Higgsfield** API), preview and reshoot it until they're happy, then send it to **Claude**, which builds a complete single-file website around the footage — playing as an ambient loop or scrubbing frame-by-frame with scroll. They keep iterating with either AI until it ships.
+Video-first website builder. Users describe their business, upload their own footage or direct a cinematic video with **Higgsfield**, then send it to **Claude**, which builds a complete single-file website around the footage — playing as an ambient loop or scrubbing frame-by-frame with scroll. They can replace clips and keep editing until the site is ready.
 
 **Stack:** Next.js (App Router) · Supabase (auth + Postgres + RLS) · Stripe (subscriptions + credit top-ups) · Anthropic API (streaming, user-selectable model) · Higgsfield (hosted video models) · Vercel (hosting)
 
@@ -9,12 +9,12 @@ AI video-first website builder. Users describe their business, direct a cinemati
 ## How the product works
 
 1. **Brief** — user names the project, picks an industry, describes the website.
-2. **Direct** — user writes a shot prompt, picks resolution/length/ratio, and generates. The video renders asynchronously; the studio polls and shows it in a "dailies" player. The user can **reshoot as many times as they like** — nothing goes to Claude without approval.
+2. **Add footage** — user uploads an MP4, MOV or WebM clip (up to 50 MB and 60 seconds), or writes a shot prompt and generates with AI. Uploads are converted to a browser-ready MP4 and use no video credits. In the studio, users can add more clips or replace existing footage before building.
 3. **Build** — user picks playback mode (**ambient loop** or **scroll scrub**) and a Claude model (Haiku → Opus), then hits *Send to Claude*. The site streams in live and renders in a sandboxed iframe.
 4. **Iterate** — chat box sends edit instructions to Claude (full current HTML is passed as context each time). Reshooting the video and telling Claude "swap in the new video" also works — the latest video URL is always injected server-side.
 5. **Ship** — download the site as a zip (HTML plus every video, URLs rewritten to local files), or — on **Pro and Studio** — publish it live in one click to the user's *own* Vercel and Supabase accounts.
 
-Every action is metered in credits with atomic spend/refund in Postgres. Failed generations are automatically refunded.
+AI generations are metered in credits with atomic spend/refund in Postgres. Failed generations are automatically refunded. Uploading footage does not spend credits or consume the free AI video allowance; site generation still follows the usual plan and credit rules.
 
 ---
 
@@ -101,6 +101,15 @@ npm run dev
 Missing required vars are reported at server start by `instrumentation.ts` — loudly in
 production (it refuses to boot), as a warning in development.
 
+To verify footage uploads against a running local app, run `node scripts/verify-footage.mjs`.
+Add `--browser` to also exercise the create flow with a simulated failed site build and retry,
+and check that the authenticated studio plays the footage and keeps it after a reload.
+The check uses the configured Supabase admin credentials to create confirmed
+disposable accounts, uploads tiny synthetic MP4/MOV/WebM clips, checks invalid-file rejection,
+credit preservation and ZIP export, then cleans up its accounts and storage objects. It does
+not call AI generation or email endpoints. Set `FOOTAGE_TEST_APP` for a different localhost
+port or `PLAYWRIGHT_CHANNEL` to use an installed browser such as `msedge`.
+
 ### 6. Deploy integrations (currently disabled — Pro/Studio "Publish live")
 
 Lets customers push a finished site into **their own** Vercel and Supabase accounts.
@@ -169,7 +178,7 @@ Protections already built in:
 
 - `lib/claude.ts` — streaming site generation. The system prompt enforces single-file HTML output, distinctive (non-generic) design, and contains the exact loop / scroll-scrub video integration patterns. Edits always pass the full current HTML and return a full document.
 - `app/api/site/generate/route.ts` — spends credits, streams plain text to the client, persists the finished HTML, refunds on failure using an in-band error sentinel.
-- `app/api/video/*` — creates the Higgsfield request and polls it; refunds on provider failure.
+- `app/api/video/*` — creates the Higgsfield request and polls it; refunds on provider failure. `/api/video/upload` issues an owner-scoped signed Storage upload and validates/converts the uploaded bytes before attaching the permanent MP4 to a clip.
 - `app/api/stripe/webhook/route.ts` — top-ups on `checkout.session.completed`, plan set + monthly credit grant on `invoice.paid` (covers first payment and renewals), status sync on subscription update/delete.
 - `proxy.ts` — session refresh + auth gate for `/dashboard`, `/studio`, `/account` (Next 16 renamed `middleware` to `proxy`).
 - `lib/site-bundle.ts` — the single definition of "what the site is": HTML + videos with URLs rewritten. The zip download, the Vercel deployment and the Supabase Storage upload all build from it, so a site can't behave one way downloaded and another way deployed.

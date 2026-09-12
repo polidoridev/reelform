@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
   const videos = readyVideos(await listVideos(supabase, project.id));
   if (videos.length === 0) {
-    return NextResponse.json({ error: "Generate and approve a video first" }, { status: 400 });
+    return NextResponse.json({ error: "Upload or generate a video first" }, { status: 400 });
   }
 
   let brief: string;

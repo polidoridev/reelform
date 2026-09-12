@@ -165,8 +165,8 @@ export function HeroScrub() {
             move people.
           </h1>
           <p className="mx-auto mt-4 sm:mt-7 max-w-xl text-[0.95rem] min-[380px]:text-base sm:text-lg md:text-xl text-white/90 leading-relaxed [text-shadow:0_1px_12px_rgba(0,0,0,0.4)]">
-            Direct a cinematic hero video with the AI model of your choice. Approve the footage, then Claude builds your
-            whole site around it: looping, or scrubbing frame-by-frame as visitors scroll.
+            Upload your own footage or generate a cinematic video with AI. Claude builds your
+            whole site around it: looping, or playing frame by frame as visitors scroll.
           </p>
           <div className="mt-6 sm:mt-9 flex w-full max-w-sm sm:max-w-none flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-center gap-3">
             <Link

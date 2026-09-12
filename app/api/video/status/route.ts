@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     .from("project_videos")
     .select("id, project_id, position, task_id, status, url, settings")
     .eq("id", videoId)
+    .eq("user_id", user.id)
     .single();
   if (!video) return NextResponse.json({ error: "Video not found" }, { status: 404 });
 
@@ -38,15 +39,23 @@ export async function GET(request: NextRequest) {
 
   const task = await getVideoTask(video.task_id);
   const admin = createSupabaseAdmin();
+  const currentStatus = async () => {
+    const { data: current } = await supabase.from("project_videos").select("status, url").eq("id", video.id).maybeSingle();
+    return NextResponse.json({ videoId, status: current?.status ?? video.status, videoUrl: current?.url ?? video.url });
+  };
 
   if (task.status === "succeeded") {
     // Re-host in our own storage, provider CDN URLs can expire.
     const permanentUrl = task.videoUrl ? await storeVideo(admin, video.project_id, task.videoUrl) : null;
     const videoUrl = permanentUrl ?? task.videoUrl;
-    await admin
+    const { data: settled } = await admin
       .from("project_videos")
       .update({ status: "succeeded", url: videoUrl, updated_at: new Date().toISOString() })
-      .eq("id", video.id);
+      .eq("id", video.id).eq("task_id", video.task_id).in("status", ["queued", "running"])
+      .select("id").maybeSingle();
+    if (!settled) {
+      return currentStatus();
+    }
     if (video.position === 0) await syncPrimaryVideo(admin, video.project_id);
     return NextResponse.json({ videoId, status: "succeeded", videoUrl });
   }
@@ -55,7 +64,7 @@ export async function GET(request: NextRequest) {
     // The refund must fire exactly once. The studio polls every clip on an
     // interval, so two in-flight polls (a second tab, or a slow storeVideo
     // overlapping the next tick) can both get here having read a non-failed
-    // status. Guarding the UPDATE with `.neq("status", "failed")` makes the
+    // status. Guarding the UPDATE with the active task and status makes the
     // transition itself the lock: under READ COMMITTED the loser re-checks the
     // predicate after the winner commits and matches zero rows, so only the
     // request that actually flipped the row pays out.
@@ -63,8 +72,11 @@ export async function GET(request: NextRequest) {
       .from("project_videos")
       .update({ status: "failed", updated_at: new Date().toISOString() })
       .eq("id", video.id)
-      .neq("status", "failed")
+      .eq("task_id", video.task_id)
+      .in("status", ["queued", "running"])
       .select("id");
+
+    if (!transitioned?.length) return currentStatus();
 
     if (video.position === 0) await syncPrimaryVideo(admin, video.project_id);
 
@@ -80,8 +92,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (video.status !== task.status) {
-    await admin.from("project_videos").update({ status: task.status }).eq("id", video.id);
+    const { data: transitioned } = await admin.from("project_videos")
+      .update({ status: task.status, updated_at: new Date().toISOString() })
+      .eq("id", video.id).eq("task_id", video.task_id).in("status", ["queued", "running"])
+      .select("id").maybeSingle();
+    if (!transitioned) return currentStatus();
     if (video.position === 0) await syncPrimaryVideo(admin, video.project_id);
   }
-  return NextResponse.json({ videoId, status: task.status });
+  return currentStatus();
 }

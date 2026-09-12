@@ -28,6 +28,7 @@ import { DeployPanel } from "@/components/DeployPanel";
 import { SiteChat, type ChatMessage } from "@/components/SiteChat";
 import { trackEvent } from "@/lib/analytics";
 import { BrandMark } from "@/components/BrandMark";
+import { uploadFootage } from "@/lib/upload-footage";
 
 const ERROR_SENTINEL = "\n<<<REELFORM_ERROR>>>";
 
@@ -108,6 +109,9 @@ export function Studio({
   const [busyClip, setBusyClip] = useState<string | null>(null);
   const [suggestingClip, setSuggestingClip] = useState<string | null>(null);
   const [addingClip, setAddingClip] = useState(false);
+  const [uploadingClip, setUploadingClip] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const uploadInFlight = useRef(false);
 
   // Asking for the next video in plain language, once the first one exists.
   const [shotChat, setShotChat] = useState<ChatMessage[]>(() =>
@@ -245,7 +249,7 @@ export function Studio({
   // Ask for the next video in words; Claude works out the shot and rolls it.
   async function requestClip() {
     const ask = shotDraft.trim();
-    if (!ask || requestingClip) return;
+    if (!ask || requestingClip || uploadInFlight.current || building || editing) return;
     setError(null);
     setRequestingClip(true);
     setShotChat((c) => [...c, { role: "user", content: ask }]);
@@ -284,7 +288,7 @@ export function Studio({
   // Add the next empty slot by hand. One card at a time: the next "+" only
   // shows once this one exists, so nobody faces six blank squares at once.
   async function addClip() {
-    if (addingClip || clips.length >= MAX_VIDEOS_PER_PROJECT) return;
+    if (addingClip || uploadInFlight.current || building || editing || clips.length >= MAX_VIDEOS_PER_PROJECT) return;
     setAddingClip(true);
     try {
       const res = await fetch("/api/videos", {
@@ -308,6 +312,7 @@ export function Studio({
   }
 
   async function removeClip(id: string) {
+    if (uploadInFlight.current || busyClip || building || editing) return;
     const previous = clips;
     setClips((cs) => cs.filter((c) => c.id !== id));
     const res = await fetch(`/api/videos?videoId=${id}`, { method: "DELETE" });
@@ -320,6 +325,7 @@ export function Studio({
   }
 
   async function updateClip(id: string, patch: { label?: string; mode?: "loop" | "scrub" }) {
+    if (uploadInFlight.current || busyClip || building || editing) return;
     const previous = clips.find((c) => c.id === id);
     patchClip(id, patch);
     const res = await fetch("/api/videos", {
@@ -334,6 +340,7 @@ export function Studio({
   }
 
   async function generateClip(id: string) {
+    if (uploadInFlight.current || busyClip || building || editing) return;
     const d = drafts[id];
     if (!d?.prompt.trim()) {
       setError("Describe the video first, or start from a shot style.");
@@ -360,7 +367,19 @@ export function Studio({
       } else if (!res.ok) {
         setError(data.message ?? data.error ?? "Video generation failed.");
       } else {
-        patchClip(id, { status: "queued", url: null, prompt: d.prompt });
+        patchClip(id, {
+          status: "queued",
+          url: null,
+          task_id: data.taskId,
+          prompt: d.prompt,
+          settings: {
+            model: d.model,
+            resolution: d.resolution,
+            duration: d.duration,
+            ratio: d.ratio,
+            cost: data.cost,
+          },
+        });
         trackEvent("video_requested", {
           resolution: d.resolution,
           duration: d.duration,
@@ -369,13 +388,44 @@ export function Studio({
           source: "manual",
         });
       }
+    } catch {
+      setError("Could not start video generation. Check your connection and try again.");
     } finally {
       setBusyClip(null);
       refreshCredits();
     }
   }
 
+  async function uploadClip(id: string, file: File): Promise<boolean> {
+    if (uploadInFlight.current || busyClip || building || editing) return false;
+    const clip = clips.find((c) => c.id === id);
+    if (!clip || clip.status === "queued" || clip.status === "running") return false;
+    uploadInFlight.current = true;
+    setUploadingClip(id);
+    setUploadProgress(0);
+    setError(null);
+    try {
+      const uploaded = await uploadFootage(id, file, setUploadProgress);
+      patchClip(id, uploaded);
+      setDrafts((current) => ({ ...current, [id]: draftFor(uploaded) }));
+      trackEvent("video_succeeded", { source: "upload" });
+      toast(
+        siteHtml ? "Footage uploaded. Rebuild with your current footage to update the website." : "Footage uploaded. You can build your website now.",
+        "success"
+      );
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not upload your footage. Please try again.");
+      return false;
+    } finally {
+      uploadInFlight.current = false;
+      setUploadingClip(null);
+      setUploadProgress(null);
+    }
+  }
+
   async function suggestShot(id: string) {
+    if (uploadInFlight.current || building || editing) return;
     if (!industry.trim() && !siteBrief.trim()) {
       setError("Fill in the brief first, then I'll suggest a shot.");
       return;
@@ -405,6 +455,7 @@ export function Studio({
 
   // ── Build ──────────────────────────────────────────────────────────
   async function runClaude() {
+    if (uploadInFlight.current || building || editing || readyClips.length === 0) return;
     setError(null);
     setBuilding(true);
     setStreamedChars(0);
@@ -477,7 +528,7 @@ export function Studio({
   // Claude-Code-style edit: streams narration live and charges by real usage.
   async function runEdit() {
     const change = draft.trim();
-    if (!change || editing) return;
+    if (!change || editing || uploadInFlight.current) return;
     setError(null);
     setEditing(true);
     setLastEditCost(null);
@@ -657,6 +708,7 @@ export function Studio({
   ];
 
   function goStep(n: 1 | 2 | 3) {
+    if (uploadInFlight.current) return;
     setError(null);
     setStep(n);
   }
@@ -747,6 +799,7 @@ export function Studio({
             <div key={s.n} className="flex items-center gap-3 sm:gap-6">
               <button
                 onClick={() => goStep(s.n)}
+                disabled={uploadingClip !== null}
                 className="flex items-center gap-2 group"
                 aria-current={active ? "step" : undefined}
               >
@@ -843,7 +896,7 @@ export function Studio({
                   disabled={!siteBrief.trim()}
                   className="btn-primary !py-3 !px-6"
                 >
-                  Next: create your videos →
+                  Next: add your videos →
                 </button>
               </div>
 
@@ -859,10 +912,11 @@ export function Studio({
                 <p className="mono-label !text-primary">STEP 2 · YOUR VIDEOS</p>
                 <ProviderStatus />
               </div>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight">Direct your shots</h1>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight">Add your footage</h1>
               <p className="mt-2 text-muted">
-                The first clip opens your site. Add more and Claude will place them down the page;
-                each one plays the way you set it: scrubbing with the scroll, or looping on its own.
+                Upload your own clips or generate them with AI. The first clip opens your site;
+                add more and Claude will place them down the page.
+                Each one plays the way you set it: scrubbing with the scroll, or looping on its own.
               </p>
 
               <div className="mt-8 space-y-4">
@@ -876,10 +930,13 @@ export function Studio({
                     onRename={(label) => updateClip(clip.id, { label })}
                     onModeChange={(mode) => updateClip(clip.id, { mode })}
                     onGenerate={() => generateClip(clip.id)}
+                    onUpload={(file) => uploadClip(clip.id, file)}
                     onSuggest={() => suggestShot(clip.id)}
                     onRemove={() => removeClip(clip.id)}
                     suggesting={suggestingClip === clip.id}
-                    busy={busyClip === clip.id || building}
+                    busy={busyClip !== null || uploadingClip !== null || building || editing}
+                    uploading={uploadingClip === clip.id}
+                    uploadProgress={uploadingClip === clip.id ? uploadProgress : null}
                     removable={clips.length > 1}
                     costLabel={costLabel}
                     isAdmin={isAdmin}
@@ -892,7 +949,7 @@ export function Studio({
               {clips.length < MAX_VIDEOS_PER_PROJECT && (
                 <button
                   onClick={addClip}
-                  disabled={addingClip}
+                  disabled={addingClip || uploadingClip !== null || building || editing}
                   className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong px-4 py-4 text-sm font-medium text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <span className="text-lg leading-none">+</span>
@@ -900,15 +957,15 @@ export function Studio({
                 </button>
               )}
 
-              {/* Once there's footage, more videos are asked for, not added. */}
+              {/* AI generation remains an optional way to add another clip. */}
               {readyClips.length > 0 && (
                 <div className="mt-6 card !rounded-xl overflow-hidden">
                   <div className="px-4 py-3 border-b border-line bg-bg">
-                    <p className="mono-label !text-primary">OR JUST DESCRIBE THE NEXT ONE</p>
+                    <p className="mono-label !text-primary">OR GENERATE ANOTHER VIDEO WITH AI</p>
                     <p className="mt-1 text-sm text-muted leading-relaxed">
                       {clips.length >= MAX_VIDEOS_PER_PROJECT
                         ? `You've reached the ${MAX_VIDEOS_PER_PROJECT}-video limit for one production.`
-                        : "Rather than filling in a slot yourself: say what you want and I'll work out the shot and roll it. It'll appear above as it renders."}
+                        : "Describe what you want and I'll work out the shot and generate it. It'll appear above as it renders."}
                     </p>
                   </div>
                   {clips.length < MAX_VIDEOS_PER_PROJECT && (
@@ -918,10 +975,10 @@ export function Studio({
                         draft={shotDraft}
                         onDraftChange={setShotDraft}
                         onSend={requestClip}
-                        busy={requestingClip}
+                        busy={requestingClip || uploadingClip !== null || building || editing}
                         transcript=""
                         placeholder="e.g. now a slow close-up of the beans being roasted"
-                        busyLabel="Working out the shot…"
+                        busyLabel={uploadingClip !== null ? "Finishing your footage upload…" : "Working out the shot…"}
                         emptyState="Tell me what you want to see next: “a slow pan across the workshop”, “steam rising off a fresh cup, close up”. I'll write the shot, pick how it plays, and start rendering it."
                         hint={
                           isAdmin
@@ -937,12 +994,12 @@ export function Studio({
               <div className="mt-8 flex items-center justify-between gap-3">
                 <p className="text-xs text-faint">
                   {readyClips.length === 0
-                    ? "Generate at least one video to continue."
+                    ? "Upload or generate at least one video to continue."
                     : `${readyClips.length} of ${clips.length} ready.`}
                 </p>
                 <button
                   onClick={() => goStep(3)}
-                  disabled={readyClips.length === 0}
+                  disabled={readyClips.length === 0 || uploadingClip !== null}
                   className="btn-primary !py-3 !px-6"
                 >
                   Build my website →
@@ -989,10 +1046,10 @@ export function Studio({
                     </button>
                     <button
                       onClick={() => runClaude()}
-                      disabled={editing || building || !siteBrief.trim()}
+                      disabled={editing || building || uploadingClip !== null || !siteBrief.trim()}
                       className="btn-ghost !py-1.5 !px-3 !text-xs shrink-0"
                     >
-                      Start over
+                      Rebuild with current footage
                     </button>
                     <button
                       onClick={downloadHtml}
@@ -1050,7 +1107,7 @@ export function Studio({
                       draft={draft}
                       onDraftChange={setDraft}
                       onSend={runEdit}
-                      busy={editing}
+                      busy={editing || uploadingClip !== null}
                       transcript={editTranscript}
                       hint={
                         isAdmin
@@ -1069,10 +1126,10 @@ export function Studio({
                 <p className="text-6xl" aria-hidden>
                   🎬
                 </p>
-                <p className="text-2xl font-bold">Create a video first</p>
+                <p className="text-2xl font-bold">Add a video first</p>
                 <p className="text-muted max-w-sm">
-                  Claude builds the whole site around your approved footage, so let&apos;s shoot that
-                  first.
+                  Claude builds the whole site around your footage. Upload your own video or
+                  generate one with AI to get started.
                 </p>
                 <button onClick={() => goStep(2)} className="btn-primary !py-3 !px-6">
                   ← Back to the videos
@@ -1108,7 +1165,7 @@ export function Studio({
                     {clips.length > readyClips.length && (
                       <p className="mt-2 text-xs text-faint">
                         {clips.length - readyClips.length} clip
-                        {clips.length - readyClips.length === 1 ? "" : "s"} still unshot, so they
+                        {clips.length - readyClips.length === 1 ? " is" : "s are"} not ready and
                         won&apos;t be included.
                       </p>
                     )}
@@ -1155,7 +1212,7 @@ export function Studio({
 
                   <button
                     onClick={() => runClaude()}
-                    disabled={building || readyClips.length === 0 || !siteBrief.trim()}
+                    disabled={building || uploadingClip !== null || readyClips.length === 0 || !siteBrief.trim()}
                     className="btn-primary w-full !py-4 mt-6"
                   >
                     Build my website ·{" "}

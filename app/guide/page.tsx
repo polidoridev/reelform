@@ -8,7 +8,7 @@ import { CONTACT_EMAIL } from "@/lib/contact";
 export const metadata = pageMeta({
   title: "Guide",
   description:
-    "How to get a good result out of Reelform: writing a brief Claude can build from, directing a shot Seedance renders well, choosing loop or scrub, and shipping the finished site.",
+    "How to get a good result out of Reelform: write a brief, upload your footage or generate a shot, choose loop or scrub, and ship the finished site.",
   path: "/guide",
 });
 
@@ -16,9 +16,8 @@ export default function GuidePage() {
   return (
     <LegalShell label="GETTING STARTED" title="How to get a good result">
       <p className="text-lg text-muted leading-relaxed">
-        The whole loop takes a couple of minutes, but the difference between a flat result and a
-        genuinely good one comes down to three short pieces of writing. Here&apos;s what each one
-        needs.
+        Start with a clear brief and footage that shows what makes your business yours.
+        Bring a clip you already have or generate one, then build and refine your site.
       </p>
 
       <LegalSection heading="1. Write a brief Claude can build from">
@@ -43,9 +42,16 @@ export default function GuidePage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="2. Direct a shot Seedance can actually render">
+      <LegalSection heading="2. Bring your footage or generate a shot">
         <p>
-          Video models are good at atmosphere and camera movement, and weak at legible text, hands,
+          Choose <strong className="text-ink">Use my footage</strong> when creating a production
+          or adding a clip in the studio. MP4, MOV and WebM files up to 50 MB and 60 seconds are
+          supported. Uploading costs no video credits, and you can replace the clip later.
+          Pick a short, steady shot with a clear subject; the same footage can loop or scrub
+          with the visitor&apos;s scroll.
+        </p>
+        <p>
+          If you generate with AI, video models are good at atmosphere and camera movement, and weak at legible text, hands,
           logos and precise brand detail. Describe the <em>scene and the camera</em>, not a
           graphic design.
         </p>
@@ -106,6 +112,7 @@ export default function GuidePage() {
         <p>
           Every action shows its price before you confirm it. New accounts start with{" "}
           one free website: a hero video and a full site build, no card needed.
+          {" "}Uploading your own footage is free; building and editing the website follow the usual plan and credit rules.
         </p>
         <ul className="mt-4 space-y-2">
           <li className="flex justify-between border-b border-line pb-2">

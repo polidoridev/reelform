@@ -12,19 +12,23 @@ import { faqJsonLd, JsonLd } from "@/lib/seo";
 const FAQS = [
   {
     q: "What exactly do I get?",
-    a: "A complete, responsive single-file website built around your AI-generated hero video, with real copy written for your business, not lorem ipsum. Preview it live, keep iterating with Claude, then download a zip with the HTML page and your hero video, ready to host anywhere.",
+    a: "A complete, responsive single-file website built around your own footage or an AI-generated video, with copy written for your business. Preview it live, keep iterating with Claude, then download a zip with the HTML page and all your clips, ready to host anywhere.",
+  },
+  {
+    q: "Can I upload my own footage?",
+    a: "Yes. Upload MP4, MOV or WebM clips up to 50 MB and 60 seconds when creating a website or adding videos in the studio. Use them as ambient loops or scroll-controlled videos. Uploads cost no video credits; website builds and edits follow your usual plan and credit limits.",
   },
   {
     q: "What if I don't like the video?",
-    a: "Nothing goes to your site without your approval. You see the footage first. Reshoot as many times as you like, and only build once it's right. Failed generations are automatically refunded.",
+    a: "You see the footage before building. Replace it with another clip of your own, or generate a new take with AI, then build once you're happy. Failed AI generations are automatically refunded.",
   },
   {
     q: "How do credits work?",
-    a: "Every video shoot and every Claude build has a transparent credit price shown before you click. Subscriptions refill monthly at the best rate; subscribers can buy top-up credits, which never expire. New accounts get one complete website free (a hero video and a full build), then pick a plan to keep iterating.",
+    a: "Uploading your footage uses no video credits. AI video generation and Claude builds show their credit price before you click. Subscriptions refill monthly; subscribers can buy top-up credits, which never expire. New accounts get one complete website free (a hero video and a full build), then pick a plan to keep iterating.",
   },
   {
     q: "Can I change the site after it's built?",
-    a: "Yes, that's the point. Keep prompting Claude for edits (“darker palette, add testimonials”), or reshoot the video and tell Claude to swap it in. Every change streams into the live preview.",
+    a: "Yes. Keep prompting Claude for edits (“darker palette, add testimonials”), or upload replacement footage and tell Claude to swap it in. You can also generate a new video with AI. Site changes stream into the live preview.",
   },
 ];
 
@@ -32,8 +36,8 @@ const FAQS = [
 const FEATURES = [
   {
     badge: "STEP 01",
-    title: "Direct the shot",
-    body: "Describe the footage in plain language: mood, motion, the world your brand lives in. Pick a video model and it renders in about two minutes. Preview and reshoot until it's right.",
+    title: "Start with your footage",
+    body: "Upload your own MP4, MOV or WebM clips, or describe a shot and generate it with AI. Preview your footage in the studio, then choose how it plays.",
     video: "/ReferenceVids/hf_20260616_211244_e8668434-14ae-41be-8a46-92a921c7736c.mp4",
     tag: "VIDEO",
   },
@@ -145,8 +149,8 @@ export default function Home() {
                   Camera to live site.
                 </h2>
                 <p className="mx-auto mt-5 max-w-xl text-lg text-white/90 leading-relaxed">
-                  Brief, video, build: each step takes over the whole screen. Watch your footage
-                  render, preview the finished site in the browser, and download it in a click.
+                  Brief, video, build: each step takes over the whole screen. Upload your footage
+                  or generate a video, preview the finished site, and download it in a click.
                 </p>
                 <div className="mt-8 flex justify-center">
                   <Link
